@@ -3,10 +3,15 @@ using Microsoft.Extensions.Configuration;
 using NAudio.Wave;
 using Google.Apis.Auth.OAuth2;
 using Grpc.Auth;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace AkkoTTS
 {
-    internal class GoogleCloudTTS
+    internal class GoogleCloudTTS : IDisposable
     {
         private readonly IConfigurationRoot _configuration;
         private readonly TextToSpeechClient _client;
@@ -22,12 +27,21 @@ namespace AkkoTTS
                 Directory.CreateDirectory(_tempDirectory);
             }
 
-            var credentials = GetCredentials();
-
-            _client = new TextToSpeechClientBuilder
+            try
             {
-                ChannelCredentials = credentials.ToChannelCredentials()
-            }.Build();
+                var credentials = GetCredentials();
+
+                _client = new TextToSpeechClientBuilder
+                {
+                    ChannelCredentials = credentials.ToChannelCredentials()
+                }.Build();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error initializing Google Cloud TTS: {ex.Message}");
+                // Create a null client - we'll check for this before using it
+                _client = null;
+            }
         }
 
         private GoogleCredential GetCredentials()
@@ -65,24 +79,53 @@ namespace AkkoTTS
                 .CreateScoped(TextToSpeechClient.DefaultScopes);
         }
 
-        public async Task<List<Voice>> GetChirp3EnUsVoicesAsync()
+        public void ListAvailableVoices(Action<string> addVoiceToComboBox)
         {
-            var response = await _client.ListVoicesAsync(new ListVoicesRequest { LanguageCode = "en-US" });
+            if (_client == null)
+                return; // Skip if client initialization failed
 
-            return response.Voices
-                .Where(v => v.Name.Contains("chirp") && v.LanguageCodes.Contains("en-US"))
-                .ToList();
+            try
+            {
+                var response = _client.ListVoices(new ListVoicesRequest());
+
+                foreach (var voice in response.Voices)
+                {
+                    // Only add Chirp3-HD voices
+                    if (voice.LanguageCodes.Contains("en-US") && voice.Name.Contains("Chirp3-HD"))
+                    {
+                        string voiceName = $"Google: {voice.Name}";
+                        addVoiceToComboBox(voiceName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error retrieving Google Cloud voices: {ex.Message}");
+                // Don't throw - just silently fail to add voices
+            }
         }
 
         public async Task<string> SynthesizeSpeechAsync(string text, string voiceName)
         {
+            if (_client == null)
+                throw new InvalidOperationException("Google Cloud TTS client is not initialized.");
+
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentException("Text cannot be empty", nameof(text));
+
+            // Extract the actual voice name from the format "Google: voice-name"
+            string actualVoiceName = voiceName;
+            if (voiceName.StartsWith("Google: "))
+            {
+                actualVoiceName = voiceName.Substring("Google: ".Length);
+            }
 
             var input = new SynthesisInput { Text = text };
 
             var voice = new VoiceSelectionParams
             {
                 LanguageCode = "en-US",
-                Name = voiceName
+                Name = actualVoiceName
             };
 
             var audioConfig = new AudioConfig
@@ -158,6 +201,11 @@ namespace AkkoTTS
             {
                 Console.WriteLine($"Error cleaning up temporary files: {ex.Message}");
             }
+        }
+
+        public void Dispose()
+        {
+            Cleanup();
         }
     }
 }
