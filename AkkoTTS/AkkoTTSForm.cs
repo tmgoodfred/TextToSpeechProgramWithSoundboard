@@ -1,29 +1,32 @@
-﻿using System.Speech.AudioFormat;
-using System.Speech.Synthesis;
-using NAudio.Wave;
+﻿using Microsoft.Extensions.Configuration;
 
 namespace AkkoTTS
 {
     public partial class AkkoTTSForm : Form
     {
-        private SpeechSynthesizer synth;
-        private Dictionary<int, string> voiceFilePaths = new Dictionary<int, string>();
-        private string configFilePath;
-        private WaveOutEvent currentOutputDevice;
-        private bool isPlaying = false;
-        private WaveOutEvent secondaryOutputDevice;
-        private bool useSecondaryOutput = false;
+        private SpeechSynthesizerManager speechSynthesizerManager;
+        private AudioManager audioManager;
+        private VoiceConfigurationManager voiceConfigManager;
+        private StatusManager statusManager;
+        private GoogleCloudTTS googleCloudTTS;
+        private IConfigurationRoot configuration;
         private Label statusLabel;
-        private Button lastPlayedButton;
-        private Color originalButtonColor;
-        private System.Windows.Forms.Timer animationTimer;
-        private int animationFrame = 0;
-        private string[] animationFrames = new string[] { "▮▯▯▯", "▮▮▯▯", "▮▮▮▯", "▮▮▮▮", "▮▮▮▯", "▮▮▯▯", "▮▯▯▯" };
+        private string lastSpokenText = "";
+        private string lastSelectedVoice = "";
+        private bool wasLastSpeechCloud = false;
+        private string lastCloudAudioFilePath = "";
 
         public AkkoTTSForm()
         {
             InitializeComponent();
-            synth = new SpeechSynthesizer();
+
+            // Initialize configuration
+            var builder = new ConfigurationBuilder()
+        .SetBasePath(Directory.GetCurrentDirectory())
+        .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true);
+            
+
+            configuration = builder.Build();
 
             statusLabel = new Label
             {
@@ -36,214 +39,88 @@ namespace AkkoTTS
             };
             this.Controls.Add(statusLabel);
 
-            animationTimer = new System.Windows.Forms.Timer();
-            animationTimer.Interval = 150;
-            animationTimer.Tick += AnimationTimer_Tick;
+            // Initialize managers
+            statusManager = new StatusManager(statusLabel);
+            speechSynthesizerManager = new SpeechSynthesizerManager();
+            audioManager = new AudioManager((isPlaying, message) =>
+                statusManager.UpdateStatus(isPlaying, message));
+            voiceConfigManager = new VoiceConfigurationManager();
+            googleCloudTTS = new GoogleCloudTTS(configuration);
 
-            foreach (var voice in synth.GetInstalledVoices().Select(v => v.VoiceInfo.Name))
+            ConfigureButtonAppearance(voice1);
+            ConfigureButtonAppearance(voice2);
+            ConfigureButtonAppearance(voice3);
+            ConfigureButtonAppearance(voice4);
+            ConfigureButtonAppearance(voice5);
+            ConfigureButtonAppearance(voice6);
+            ConfigureButtonAppearance(voice7);
+            ConfigureButtonAppearance(voice8);
+
+            useHeadphonesCheckBox.CheckedChanged += UseHeadphonesCheckBox_CheckedChanged;
+
+
+            // Load voices into combobox
+            LoadVoices();
+
+            // Load audio devices
+            LoadAudioDevices();
+
+            // Set up voice buttons
+            SetupVoiceButtons();
+        }
+
+        private void LoadVoices()
+        {
+            // Add local voices first
+            foreach (var voice in speechSynthesizerManager.GetInstalledVoices())
+            {
                 voiceComboBox.Items.Add(voice);
+            }
+
+            // Then add Google Cloud voices
+            googleCloudTTS.ListAvailableVoices(voiceName => voiceComboBox.Items.Add(voiceName));
 
             if (voiceComboBox.Items.Count > 0)
                 voiceComboBox.SelectedIndex = 0;
+        }
 
-            for (int i = 0; i < WaveOut.DeviceCount; i++)
+        private void LoadAudioDevices()
+        {
+            var devices = AudioManager.GetAvailableDevices();
+
+            foreach (var device in devices)
             {
-                var caps = WaveOut.GetCapabilities(i);
-                outputDeviceComboBox.Items.Add($"{i}: {caps.ProductName}");
-                headphoneComboBox.Items.Add($"{i}: {caps.ProductName}");
+                outputDeviceComboBox.Items.Add(device);
+                headphoneComboBox.Items.Add(device);
             }
 
             if (outputDeviceComboBox.Items.Count > 0)
             {
                 outputDeviceComboBox.SelectedIndex = 0;
                 headphoneComboBox.SelectedIndex = -1;
-            }
-
-            useHeadphonesCheckBox.CheckedChanged += (s, e) =>
-            {
-                useSecondaryOutput = useHeadphonesCheckBox.Checked;
-                headphoneComboBox.Enabled = useSecondaryOutput;
-            };
-
-            speakBtn.Click += speakBtn_Click;
-            clearBtn.Click += clearBtn_Click;
-            speachTxt.KeyDown += speachTxt_KeyDown;
-
-            configFilePath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "sound_locations.txt");
-
-            LoadVoiceConfigurations();
-        }
-
-        private void AnimationTimer_Tick(object sender, EventArgs e)
-        {
-            animationFrame = (animationFrame + 1) % animationFrames.Length;
-
-            if (isPlaying)
-            {
-                string baseText = statusLabel.Text;
-                if (baseText.EndsWith(" " + animationFrames[0]) ||
-                    baseText.EndsWith(" " + animationFrames[1]) ||
-                    baseText.EndsWith(" " + animationFrames[2]) ||
-                    baseText.EndsWith(" " + animationFrames[3]) ||
-                    baseText.EndsWith(" " + animationFrames[4]) ||
-                    baseText.EndsWith(" " + animationFrames[5]) ||
-                    baseText.EndsWith(" " + animationFrames[6]))
-                {
-                    baseText = baseText.Substring(0, baseText.LastIndexOf(" "));
-                }
-
-                statusLabel.Text = baseText + " " + animationFrames[animationFrame];
+                headphoneComboBox.Enabled = false;
             }
         }
 
-        private void UpdatePlayingStatus(bool isPlaying, string message = null)
+        private void SetupVoiceButtons()
         {
-            if (isPlaying)
+            // Update button text based on configured voice lines
+            foreach (var kvp in voiceConfigManager.VoiceFilePaths)
             {
-                statusLabel.Text = message ?? "Playing audio...";
-                statusLabel.BackColor = Color.LightSalmon;
-
-                animationFrame = 0;
-                animationTimer.Start();
+                int voiceNumber = kvp.Key;
+                string filePath = kvp.Value;
+                UpdateVoiceButtonText(voiceNumber, filePath);
             }
-            else
-            {
-                animationTimer.Stop();
 
-                statusLabel.Text = "Ready";
-                statusLabel.BackColor = Color.LightGreen;
-
-                if (lastPlayedButton != null)
-                {
-                    lastPlayedButton.BackColor = originalButtonColor;
-                    lastPlayedButton = null;
-                }
-            }
-        }
-
-        private void clearBtn_Click(object sender, EventArgs e)
-        {
-            speachTxt.Clear();
-        }
-
-        private void speakBtn_Click(object? sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(speachTxt.Text))
-                return;
-
-            StopAudio();
-
-            UpdatePlayingStatus(true, "Speaking text...");
-
-            if (voiceComboBox.SelectedItem != null)
-                synth.SelectVoice(voiceComboBox.SelectedItem.ToString()!);
-
-            try
-            {
-                using (var stream = new MemoryStream())
-                {
-                    var format = new SpeechAudioFormatInfo(44100, AudioBitsPerSample.Sixteen, AudioChannel.Mono);
-                    synth.SetOutputToAudioStream(stream, format);
-                    synth.Speak(speachTxt.Text);
-                    synth.SetOutputToNull();
-
-                    stream.Position = 0;
-                    byte[] audioData = stream.ToArray();
-
-                    var primaryStream = new MemoryStream(audioData);
-                    var waveProvider = new RawSourceWaveStream(primaryStream, new WaveFormat(44100, 16, 1));
-                    currentOutputDevice = new WaveOutEvent();
-                    currentOutputDevice.DeviceNumber = outputDeviceComboBox.SelectedIndex;
-                    currentOutputDevice.Init(waveProvider);
-
-                    currentOutputDevice.PlaybackStopped += (s, e) =>
-                    {
-                        isPlaying = false;
-                        UpdatePlayingStatus(false);
-                        CleanupPlayback();
-                        primaryStream.Dispose();
-                    };
-
-                    if (useSecondaryOutput && headphoneComboBox.SelectedIndex >= 0)
-                    {
-                        var secondaryStream = new MemoryStream(audioData);
-                        var secondaryWaveProvider = new RawSourceWaveStream(secondaryStream, new WaveFormat(44100, 16, 1));
-                        secondaryOutputDevice = new WaveOutEvent();
-                        secondaryOutputDevice.DeviceNumber = headphoneComboBox.SelectedIndex;
-                        secondaryOutputDevice.Init(secondaryWaveProvider);
-
-                        secondaryOutputDevice.PlaybackStopped += (s, e) =>
-                        {
-                            if (secondaryOutputDevice != null)
-                            {
-                                secondaryOutputDevice.Dispose();
-                                secondaryOutputDevice = null;
-                            }
-                            secondaryStream.Dispose();
-                        };
-
-                        secondaryOutputDevice.Play();
-                    }
-
-                    currentOutputDevice.Play();
-                    isPlaying = true;
-
-                }
-
-                speachTxt.Clear();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error playing speech: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdatePlayingStatus(false);
-                CleanupPlayback();
-            }
-        }
-
-        private void speachTxt_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.KeyCode == Keys.Enter)
-            {
-                e.SuppressKeyPress = true;
-                speakBtn.PerformClick();
-            }
-        }
-
-        protected override void OnFormClosed(FormClosedEventArgs e)
-        {
-            StopAudio();
-            synth.Dispose();
-            base.OnFormClosed(e);
-        }
-
-        private void LoadVoiceConfigurations()
-        {
-            if (File.Exists(configFilePath))
-            {
-                try
-                {
-                    string[] lines = File.ReadAllLines(configFilePath);
-                    foreach (string line in lines)
-                    {
-                        string[] parts = line.Split('=');
-                        if (parts.Length == 2)
-                        {
-                            if (int.TryParse(parts[0], out int voiceNumber) && voiceNumber >= 1 && voiceNumber <= 8)
-                            {
-                                string filePath = parts[1];
-                                voiceFilePaths[voiceNumber] = filePath;
-                                UpdateVoiceButtonText(voiceNumber, filePath);
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error loading voice configurations: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
+            // Set up click handlers for voice buttons
+            voice1.Click += (s, e) => PlayVoiceLine(1, voice1);
+            voice2.Click += (s, e) => PlayVoiceLine(2, voice2);
+            voice3.Click += (s, e) => PlayVoiceLine(3, voice3);
+            voice4.Click += (s, e) => PlayVoiceLine(4, voice4);
+            voice5.Click += (s, e) => PlayVoiceLine(5, voice5);
+            voice6.Click += (s, e) => PlayVoiceLine(6, voice6);
+            voice7.Click += (s, e) => PlayVoiceLine(7, voice7);
+            voice8.Click += (s, e) => PlayVoiceLine(8, voice8);
         }
 
         private void UpdateVoiceButtonText(int voiceNumber, string filePath)
@@ -266,216 +143,220 @@ namespace AkkoTTS
 
             if (button != null)
             {
-                string fileName = Path.GetFileNameWithoutExtension(filePath);
-                if (fileName.Length > 15)
-                {
-                    fileName = fileName.Substring(0, 12) + "...";
-                }
-                button.Text = fileName;
+                button.Text = voiceConfigManager.GetFormattedButtonText(filePath);
             }
         }
 
-        private void PlayAudioFile(string filePath, Button sourceButton = null)
+        private void PlayVoiceLine(int voiceNumber, Button sourceButton)
         {
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+            if (voiceConfigManager.TryGetVoiceFilePath(voiceNumber, out string filePath))
             {
-                MessageBox.Show("Audio file not found or not set.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
+                try
+                {
+                    int primaryDeviceIndex = outputDeviceComboBox.SelectedIndex;
+                    int? secondaryDeviceIndex = useHeadphonesCheckBox.Checked && headphoneComboBox.SelectedIndex >= 0
+                        ? headphoneComboBox.SelectedIndex
+                        : null;
 
-            StopAudio();
+                    audioManager.PlayAudioFile(filePath, primaryDeviceIndex, secondaryDeviceIndex);
+                    statusManager.UpdateStatus(true, null, sourceButton);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            else
+            {
+                MessageBox.Show($"No audio file set for Voice {voiceNumber}", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void speakBtn_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(speachTxt.Text))
+                return;
 
             try
             {
-                if (sourceButton != null)
+                string selectedVoice = voiceComboBox.SelectedItem?.ToString();
+
+                // Store the last spoken text and voice
+                lastSpokenText = speachTxt.Text;
+                lastSelectedVoice = selectedVoice;
+
+                // Check if it's a Google Cloud voice
+                if (selectedVoice != null && selectedVoice.StartsWith("Google:"))
                 {
-                    lastPlayedButton = sourceButton;
-                    originalButtonColor = sourceButton.BackColor;
-                    sourceButton.BackColor = Color.LightBlue;
+                    wasLastSpeechCloud = true;
+                    PlayGoogleCloudSpeech(speachTxt.Text, selectedVoice);
+                }
+                else
+                {
+                    wasLastSpeechCloud = false;
+                    PlayLocalSpeech(speachTxt.Text, selectedVoice);
                 }
 
-                string fileName = Path.GetFileNameWithoutExtension(filePath);
-                UpdatePlayingStatus(true, $"Playing: {fileName}");
-
-                var audioFile = new AudioFileReader(filePath);
-                currentOutputDevice = new WaveOutEvent();
-                currentOutputDevice.DeviceNumber = outputDeviceComboBox.SelectedIndex;
-                currentOutputDevice.Init(audioFile);
-
-                currentOutputDevice.PlaybackStopped += (s, e) =>
-                {
-                    isPlaying = false;
-                    UpdatePlayingStatus(false);
-                    CleanupPlayback();
-                };
-
-                if (useSecondaryOutput && headphoneComboBox.SelectedIndex >= 0)
-                {
-                    var secondaryAudioFile = new AudioFileReader(filePath);
-                    secondaryOutputDevice = new WaveOutEvent();
-                    secondaryOutputDevice.DeviceNumber = headphoneComboBox.SelectedIndex;
-                    secondaryOutputDevice.Init(secondaryAudioFile);
-
-                    secondaryOutputDevice.PlaybackStopped += (s, e) =>
-                    {
-                        if (secondaryOutputDevice != null)
-                        {
-                            secondaryOutputDevice.Dispose();
-                            secondaryOutputDevice = null;
-                        }
-                    };
-                }
-
-                currentOutputDevice.Play();
-                if (secondaryOutputDevice != null)
-                    secondaryOutputDevice.Play();
-
-                isPlaying = true;
+                speachTxt.Clear();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error playing audio file: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                UpdatePlayingStatus(false);
-                CleanupPlayback();
+                MessageBox.Show($"Error playing speech: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void CleanupPlayback()
+        private void speachTxt_KeyDown(object sender, KeyEventArgs e)
         {
-            if (currentOutputDevice != null)
+            if (e.KeyCode == Keys.Enter)
             {
-                currentOutputDevice.Dispose();
-                currentOutputDevice = null;
-            }
-
-            if (secondaryOutputDevice != null)
-            {
-                secondaryOutputDevice.Dispose();
-                secondaryOutputDevice = null;
+                e.SuppressKeyPress = true;
+                speakBtn_Click(sender, e);
             }
         }
 
-        private void StopAudio()
+        private void clearBtn_Click(object sender, EventArgs e)
         {
-            if (currentOutputDevice != null && isPlaying)
-            {
-                currentOutputDevice.Stop();
-                if (secondaryOutputDevice != null)
-                    secondaryOutputDevice.Stop();
+            speachTxt.Clear();
+        }
 
-                isPlaying = false;
-                UpdatePlayingStatus(false);
-                CleanupPlayback();
+        private async void PlayGoogleCloudSpeech(string text, string selectedVoice, bool isRepeat = false)
+        {
+            try
+            {
+                string audioFilePath;
+
+                // If this is a repeat and we have a saved file path, use it
+                if (isRepeat && !string.IsNullOrEmpty(lastCloudAudioFilePath) && File.Exists(lastCloudAudioFilePath))
+                {
+                    audioFilePath = lastCloudAudioFilePath;
+                    statusManager.UpdateStatus(true, "Replaying Cloud TTS...");
+                }
+                else
+                {
+                    // Generate new audio
+                    statusManager.UpdateStatus(true, "Generating speech with Google Cloud...");
+                    audioFilePath = await googleCloudTTS.SynthesizeSpeechAsync(text, selectedVoice);
+                    lastCloudAudioFilePath = audioFilePath; // Save the file path for future repeats
+                }
+
+                // Play the audio file
+                int primaryDeviceIndex = outputDeviceComboBox.SelectedIndex;
+                int? secondaryDeviceIndex = useHeadphonesCheckBox.Checked && headphoneComboBox.SelectedIndex >= 0
+                    ? headphoneComboBox.SelectedIndex
+                    : null;
+
+                // Use a direct call to play the audio file without updating the status
+                try
+                {
+                    var audioFile = new NAudio.Wave.AudioFileReader(audioFilePath);
+                    audioManager.StopAudio(); // Stop any currently playing audio
+
+                    // Update status manually before playing
+                    statusManager.UpdateStatus(true, isRepeat ? "Replaying Cloud TTS..." : "Playing Cloud TTS...");
+
+                    // Play the audio file
+                    audioManager.PlaySpeechFromReader(audioFile, primaryDeviceIndex, secondaryDeviceIndex);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception($"Error playing audio file: {ex.Message}", ex);
+                }
+            }
+            catch (Exception ex)
+            {
+                statusManager.UpdateStatus(false);
+                MessageBox.Show($"Error with Google Cloud TTS: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void voice1_Click(object sender, EventArgs e)
+        private void PlayLocalSpeech(string text, string selectedVoice)
         {
-            if (voiceFilePaths.TryGetValue(1, out string filePath))
+            try
             {
-                PlayAudioFile(filePath);
+                using (var stream = speechSynthesizerManager.SynthesizeSpeech(text, selectedVoice))
+                {
+                    // Play the audio
+                    int primaryDeviceIndex = outputDeviceComboBox.SelectedIndex;
+                    int? secondaryDeviceIndex = useHeadphonesCheckBox.Checked && headphoneComboBox.SelectedIndex >= 0
+                        ? headphoneComboBox.SelectedIndex
+                        : null;
+
+                    audioManager.PlaySpeechFromStream(stream, primaryDeviceIndex, secondaryDeviceIndex);
+                }
             }
-            else
+            catch (Exception ex)
             {
-                MessageBox.Show("No audio file set for Voice 1", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                statusManager.UpdateStatus(false);
+                MessageBox.Show($"Error with local speech synthesis: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void voice2_Click(object sender, EventArgs e)
+        private void UseHeadphonesCheckBox_CheckedChanged(object sender, EventArgs e)
         {
-            if (voiceFilePaths.TryGetValue(2, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 2", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice3_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(3, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 3", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice4_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(4, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 4", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice5_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(5, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 5", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice6_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(6, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 6", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice7_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(7, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 7", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void voice8_Click(object sender, EventArgs e)
-        {
-            if (voiceFilePaths.TryGetValue(8, out string filePath))
-            {
-                PlayAudioFile(filePath);
-            }
-            else
-            {
-                MessageBox.Show("No audio file set for Voice 8", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            }
-        }
-
-        private void editVoiceLinesBtn_Click(object sender, EventArgs e)
-        {
-            EditVoiceLines editVoiceLinesForm = new EditVoiceLines();
-            editVoiceLinesForm.ShowDialog();
-
-            LoadVoiceConfigurations();
+            headphoneComboBox.Enabled = useHeadphonesCheckBox.Checked;
         }
 
         private void stopAudioBtn_Click(object sender, EventArgs e)
         {
-            StopAudio();
+            audioManager.StopAudio();
+        }
+
+        private void editVoiceLinesBtn_Click(object sender, EventArgs e)
+        {
+            using (var editVoiceLinesForm = new EditVoiceLines())
+            {
+                editVoiceLinesForm.ShowDialog();
+            }
+
+            voiceConfigManager.LoadVoiceConfigurations();
+
+            foreach (var kvp in voiceConfigManager.VoiceFilePaths)
+            {
+                UpdateVoiceButtonText(kvp.Key, kvp.Value);
+            }
+        }
+
+        private void ConfigureButtonAppearance(Button button)
+        {
+            button.BackColor = Color.White;
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.MouseDownBackColor = Color.White;
+            button.FlatAppearance.MouseOverBackColor = Color.White;
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            audioManager.StopAudio();
+            speechSynthesizerManager.Dispose();
+            googleCloudTTS.Dispose();
+            statusManager.Dispose();
+            base.OnFormClosed(e);
+        }
+
+        private void repeatBtn_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrEmpty(lastSpokenText) || string.IsNullOrEmpty(lastSelectedVoice))
+            {
+                MessageBox.Show("No previous speech to repeat.", "Information", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            try
+            {
+                if (wasLastSpeechCloud)
+                {
+                    PlayGoogleCloudSpeech(lastSpokenText, lastSelectedVoice, true);
+                }
+                else
+                {
+                    PlayLocalSpeech(lastSpokenText, lastSelectedVoice);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error repeating speech: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿namespace AkkoTTS
+﻿
+namespace AkkoTTS
 {
     partial class AkkoTTSForm
     {
@@ -29,8 +30,6 @@
         private void InitializeComponent()
         {
             speachTxt = new TextBox();
-            clearBtn = new Button();
-            speakBtn = new Button();
             voiceComboBox = new ComboBox();
             outputDeviceComboBox = new ComboBox();
             label1 = new Label();
@@ -48,43 +47,24 @@
             label3 = new Label();
             headphoneComboBox = new ComboBox();
             useHeadphonesCheckBox = new CheckBox();
+            repeatBtn = new Button();
             SuspendLayout();
             // 
             // speachTxt
             // 
-            speachTxt.Location = new Point(134, 49);
+            speachTxt.Location = new Point(117, 28);
             speachTxt.Multiline = true;
             speachTxt.Name = "speachTxt";
-            speachTxt.Size = new Size(585, 104);
+            speachTxt.Size = new Size(609, 104);
             speachTxt.TabIndex = 0;
             speachTxt.KeyDown += speachTxt_KeyDown;
-            // 
-            // clearBtn
-            // 
-            clearBtn.Location = new Point(53, 69);
-            clearBtn.Name = "clearBtn";
-            clearBtn.Size = new Size(75, 23);
-            clearBtn.TabIndex = 1;
-            clearBtn.Text = "Clear";
-            clearBtn.UseVisualStyleBackColor = true;
-            clearBtn.Click += clearBtn_Click;
-            // 
-            // speakBtn
-            // 
-            speakBtn.Location = new Point(725, 69);
-            speakBtn.Name = "speakBtn";
-            speakBtn.Size = new Size(75, 23);
-            speakBtn.TabIndex = 2;
-            speakBtn.Text = "Speak";
-            speakBtn.UseVisualStyleBackColor = true;
-            speakBtn.Click += speakBtn_Click;
             // 
             // voiceComboBox
             // 
             voiceComboBox.FormattingEnabled = true;
-            voiceComboBox.Location = new Point(180, 183);
+            voiceComboBox.Location = new Point(134, 183);
             voiceComboBox.Name = "voiceComboBox";
-            voiceComboBox.Size = new Size(180, 23);
+            voiceComboBox.Size = new Size(250, 23);
             voiceComboBox.TabIndex = 3;
             // 
             // outputDeviceComboBox
@@ -99,7 +79,7 @@
             // 
             label1.AutoSize = true;
             label1.BackColor = Color.WhiteSmoke;
-            label1.Location = new Point(136, 188);
+            label1.Location = new Point(74, 186);
             label1.Name = "label1";
             label1.Size = new Size(38, 15);
             label1.TabIndex = 5;
@@ -123,7 +103,6 @@
             voice1.TabIndex = 7;
             voice1.Text = "Voice Line 1";
             voice1.UseVisualStyleBackColor = true;
-            voice1.Click += voice1_Click;
             // 
             // editVoiceLinesBtn
             // 
@@ -143,7 +122,6 @@
             voice2.TabIndex = 9;
             voice2.Text = "Voice Line 2";
             voice2.UseVisualStyleBackColor = true;
-            voice2.Click += voice2_Click;
             // 
             // voice3
             // 
@@ -153,7 +131,6 @@
             voice3.TabIndex = 10;
             voice3.Text = "Voice Line 3";
             voice3.UseVisualStyleBackColor = true;
-            voice3.Click += voice3_Click;
             // 
             // voice4
             // 
@@ -163,7 +140,6 @@
             voice4.TabIndex = 11;
             voice4.Text = "Voice Line 4";
             voice4.UseVisualStyleBackColor = true;
-            voice4.Click += voice4_Click;
             // 
             // voice5
             // 
@@ -173,7 +149,6 @@
             voice5.TabIndex = 12;
             voice5.Text = "Voice Line 5";
             voice5.UseVisualStyleBackColor = true;
-            voice5.Click += voice5_Click;
             // 
             // voice6
             // 
@@ -183,7 +158,6 @@
             voice6.TabIndex = 13;
             voice6.Text = "Voice Line 6";
             voice6.UseVisualStyleBackColor = true;
-            voice6.Click += voice6_Click;
             // 
             // voice7
             // 
@@ -193,7 +167,6 @@
             voice7.TabIndex = 14;
             voice7.Text = "Voice Line 7";
             voice7.UseVisualStyleBackColor = true;
-            voice7.Click += voice7_Click;
             // 
             // voice8
             // 
@@ -203,7 +176,6 @@
             voice8.TabIndex = 15;
             voice8.Text = "Voice Line 8";
             voice8.UseVisualStyleBackColor = true;
-            voice8.Click += voice8_Click;
             // 
             // stopAudioBtn
             // 
@@ -243,6 +215,17 @@
             useHeadphonesCheckBox.TabIndex = 19;
             useHeadphonesCheckBox.Text = "Hear Output?";
             useHeadphonesCheckBox.UseVisualStyleBackColor = false;
+            useHeadphonesCheckBox.CheckedChanged += UseHeadphonesCheckBox_CheckedChanged;
+            // 
+            // repeatBtn
+            // 
+            repeatBtn.Location = new Point(390, 138);
+            repeatBtn.Name = "repeatBtn";
+            repeatBtn.Size = new Size(75, 23);
+            repeatBtn.TabIndex = 20;
+            repeatBtn.Text = "Repeat";
+            repeatBtn.UseVisualStyleBackColor = true;
+            repeatBtn.Click += repeatBtn_Click;
             // 
             // AkkoTTSForm
             // 
@@ -252,6 +235,7 @@
             BackgroundImage = Properties.Resources.akko_bg;
             BackgroundImageLayout = ImageLayout.Stretch;
             ClientSize = new Size(837, 413);
+            Controls.Add(repeatBtn);
             Controls.Add(useHeadphonesCheckBox);
             Controls.Add(label3);
             Controls.Add(headphoneComboBox);
@@ -269,8 +253,6 @@
             Controls.Add(label1);
             Controls.Add(outputDeviceComboBox);
             Controls.Add(voiceComboBox);
-            Controls.Add(speakBtn);
-            Controls.Add(clearBtn);
             Controls.Add(speachTxt);
             Name = "AkkoTTSForm";
             StartPosition = FormStartPosition.CenterScreen;
@@ -282,8 +264,6 @@
         #endregion
 
         private TextBox speachTxt;
-        private Button clearBtn;
-        private Button speakBtn;
         private ComboBox voiceComboBox;
         private ComboBox outputDeviceComboBox;
         private Label label1;
@@ -301,5 +281,6 @@
         private Label label3;
         private ComboBox headphoneComboBox;
         private CheckBox useHeadphonesCheckBox;
+        private Button repeatBtn;
     }
 }
